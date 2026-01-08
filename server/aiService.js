@@ -1,70 +1,82 @@
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+const axios = require('axios');
 require("dotenv").config();
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const API_KEY = process.env.GEMINI_API_KEY;
 
-const MODELS_TO_TRY = ["gemini-1.5-flash", "gemini-pro", "gemini-1.0-pro"];
+// Models to try in order of preference (and cost/speed)
+const MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"];
 
 async function analyzeTasks(tasks) {
-  for (const modelName of MODELS_TO_TRY) {
-    try {
-      console.log(`Trying AI model: ${modelName}...`);
-      const model = genAI.getGenerativeModel({ model: modelName });
-      const now = new Date();
+  const now = new Date();
 
-      const prompt = `
-      You are an expert project manager AI.
-      Current Date and Time: ${now.toISOString()}
+  const prompt = `
+      Sen uzman bir proje yöneticisi yapay zekasın.
+      Şu anki Tarih ve Saat: ${now.toISOString()}
       
-      Analyze the following tasks JSON list:
+      Aşağıdaki görev listesini (JSON) analiz et:
       ${JSON.stringify(tasks, null, 2)}
       
-      Your goal is to identify scheduling conflicts, unrealistic deadlines, and priority mismanagement.
+      Amacın: Planlama çakışmalarını, gerçekçi olmayan teslim tarihlerini ve öncelik hatalarını tespit etmektir.
       
-      Rules:
-      1. COMPARE the 'deadline' with Current Date. If deadline is passed or very close (within 24 hours) and not completed, its a HIGH RISK.
-      2. CHECK Dependencies. If Task B depends on Task A, but Task A has a later deadline than Task B, that is a CRITICAL CONFLICT.
-      3. CHECK Duration. If a task takes longer than the time remaining until deadline, that is a RISK.
-      4. Suggest re-ordering tasks based on Priority (High > Medium > Low) and Urgency (Deadline).
+      Kurallar:
+      1. 'deadline' (Son Teslim Tarihi) ile Şu Anki Tarihi KARŞILAŞTIR. Eğer tarih geçmişse veya çok yaklaştıysa (24 saat içinde) ve görev tamamlanmadıysa, bu YÜKSEK RİSKTİR.
+      2. Bağımlılıkları (Dependencies) KONTROL ET. Eğer Görev B, Görev A'ya bağlıysa; ancak Görev A'nın teslim tarihi Görev B'den sonraysa, bu KRİTİK BİR ÇAKIŞMADIR.
+      3. Süreyi (Duration) KONTROL ET. Eğer bir görevin süresi, teslim tarihine kalan süreden fazlaysa, bu bir RİSKTİR.
+      4. Öncelik (Yüksek > Orta > Düşük) ve Aciliyet (Tarih) durumuna göre görevleri yeniden sıralamayı öner.
       
-      RETURN ONLY RAW JSON. NO MARKDOWN. NO COMMENTS.
+      SADECE HAM JSON DÖNDÜR. MARKDOWN YOK. YORUM YOK. JSON cevap Türkçe olmalı.
       Format:
       {
         "risks": [
-           { "taskId": "id of task", "message": "Clear explanation of the risk why." }
+           { "taskId": "görev id'si", "message": "Riskin nedenini açıklayan net, Türkçe bir mesaj." }
         ],
         "suggestions": [
-           "Specific actionable advice 1",
-           "Specific actionable advice 2"
+           "Uygulanabilir net öneri 1 (Türkçe)",
+           "Uygulanabilir net öneri 2 (Türkçe)"
         ]
       }
       
-      If everything looks perfect, give positive reinforcement in suggestions.
-    `;
+      Eğer her şey mükemmel görünüyorsa, öneriler kısmında motive edici Türkçe bir mesaj ver.
+  `;
 
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      let text = response.text();
-      console.log(`Success with ${modelName}. Response:`, text);
+  for (const model of MODELS) {
+    try {
+      console.log(`Analyzing with model: ${model}...`);
 
-      const firstBrace = text.indexOf('{');
-      const lastBrace = text.lastIndexOf('}');
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${API_KEY}`;
 
-      if (firstBrace !== -1 && lastBrace !== -1) {
-        text = text.substring(firstBrace, lastBrace + 1);
-        return JSON.parse(text);
-      } else {
-        throw new Error("Invalid JSON format");
+      const response = await axios.post(url, {
+        contents: [{
+          parts: [{ text: prompt }]
+        }]
+      }, {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.data && response.data.candidates && response.data.candidates.length > 0) {
+        const text = response.data.candidates[0].content.parts[0].text;
+        console.log(`Success with ${model}`);
+
+        // Clean JSON
+        const firstBrace = text.indexOf('{');
+        const lastBrace = text.lastIndexOf('}');
+
+        if (firstBrace !== -1 && lastBrace !== -1) {
+          const jsonText = text.substring(firstBrace, lastBrace + 1);
+          return JSON.parse(jsonText);
+        }
       }
     } catch (error) {
-      console.error(`Failed with model ${modelName}:`, error.message);
-      // Continue to next model
+      console.error(`Error with ${model}:`, error.response ? error.response.data : error.message);
+      // Try next model
     }
   }
 
   return {
     risks: [],
-    suggestions: ["Üzgünüm, şu an hiçbir yapay zeka modeline erişilemiyor. Lütfen API anahtarınızı ve internet bağlantınızı kontrol edin."]
+    suggestions: ["Yapay zeka bağlantısı sağlanamadı. Lütfen API anahtarınızı kontrol edin."]
   };
 }
 
