@@ -75,6 +75,7 @@ const TaskForm = ({ onAdd, onUpdate, editingTask, onCancelEdit, existingTasks })
                         onChange={e => setFormData({ ...formData, duration: e.target.value })}
                         className="w-full bg-slate-900 border border-slate-700 rounded-lg py-2 px-3 text-white focus:outline-none focus:border-purple-500 transition-colors"
                         placeholder="2"
+                        min="0"
                     />
                 </div>
                 <div>

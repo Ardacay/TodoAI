@@ -1,6 +1,6 @@
 import React from 'react';
 
-const TaskCard = ({ task, onDelete, onStatusCheck, onEdit }) => {
+const TaskCard = ({ task, onDelete, onStatusCheck, onEdit, allTasks }) => {
     const getPriorityColor = (p) => {
         switch (p) {
             case 'high': return 'bg-red-500 text-white';
@@ -76,11 +76,23 @@ const TaskCard = ({ task, onDelete, onStatusCheck, onEdit }) => {
                     <span>Bitiş: {formatDate(task.deadline)}</span>
                 </div>
                 {task.dependencies && task.dependencies.length > 0 && (
-                    <div className="flex items-center gap-2 text-xs text-orange-400 mt-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                        </svg>
-                        <span>Bağımlı: {task.dependencies.length} görev</span>
+                    <div className="flex flex-col gap-1 text-xs text-orange-400 mt-2">
+                        <div className="flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                            </svg>
+                            <span className="font-semibold">Bağımlı olduğu görevler:</span>
+                        </div>
+                        <ul className="list-disc list-inside pl-6 text-gray-400">
+                            {task.dependencies.map(depId => {
+                                const depTask = allTasks?.find(t => t.id === depId);
+                                return (
+                                    <li key={depId}>
+                                        {depTask ? depTask.title : 'Bilinmeyen Görev'}
+                                    </li>
+                                );
+                            })}
+                        </ul>
                     </div>
                 )}
             </div>

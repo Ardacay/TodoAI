@@ -128,6 +128,7 @@ function App() {
                     onStatusCheck={updateTaskStatus}
                     onDelete={deleteTask}
                     onEdit={setEditingTask}
+                    allTasks={tasks}
                   />
                 ))
               )}
