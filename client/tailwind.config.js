@@ -7,9 +7,9 @@ export default {
     theme: {
         extend: {
             colors: {
-                primary: '#6366f1', // Indigo 500
-                secondary: '#a855f7', // Purple 500
-                dark: '#0f172a', // Slate 900
+                primary: '#6366f1',
+                secondary: '#a855f7',
+                dark: '#0f172a',
             },
             fontFamily: {
                 sans: ['Inter', 'sans-serif'],
