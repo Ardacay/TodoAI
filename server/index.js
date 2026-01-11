@@ -1,9 +1,11 @@
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const bcrypt = require('bcrypt');
 require('dotenv').config();
 const db = require('./db');
 const aiService = require('./aiService');
+const { authenticateToken, generateToken } = require('./authMiddleware');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -15,10 +17,54 @@ app.get('/', (req, res) => {
     res.send('TodoAI API is running with SQLite');
 });
 
-// AI Analysis Endpoint
-app.post('/api/analyze', async (req, res) => {
+// AUTH ENDPOINTS
+
+app.post('/api/auth/register', async (req, res) => {
+    const { username, email, password } = req.body;
+    if (!username || !email || !password) {
+        return res.status(400).json({ error: 'All fields are required' });
+    }
+
     try {
-        const tasks = await db.all("SELECT * FROM tasks");
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const id = Date.now().toString();
+
+        await db.run(
+            `INSERT INTO users (id, username, email, password) VALUES (?, ?, ?, ?)`,
+            [id, username, email, hashedPassword]
+        );
+
+        const token = generateToken({ id, email });
+        res.status(201).json({ token, user: { id, username, email } });
+    } catch (err) {
+        if (err.message.includes('UNIQUE constraint failed')) {
+            res.status(400).json({ error: 'Email already exists' });
+        } else {
+            res.status(500).json({ error: err.message });
+        }
+    }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+    const { email, password } = req.body;
+    try {
+        const user = await db.get("SELECT * FROM users WHERE email = ?", [email]);
+        if (!user) return res.status(400).json({ error: 'User not found' });
+
+        const validPassword = await bcrypt.compare(password, user.password);
+        if (!validPassword) return res.status(400).json({ error: 'Invalid password' });
+
+        const token = generateToken(user);
+        res.json({ token, user: { id: user.id, username: user.username, email: user.email } });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// AI Analysis Endpoint (Protected)
+app.post('/api/analyze', authenticateToken, async (req, res) => {
+    try {
+        const tasks = await db.all("SELECT * FROM tasks WHERE user_id = ?", [req.user.id]);
         // Parse dependencies for better context
         const preparedTasks = tasks.map(task => ({
             ...task,
@@ -32,10 +78,10 @@ app.post('/api/analyze', async (req, res) => {
     }
 });
 
-// GET all tasks
-app.get('/api/tasks', async (req, res) => {
+// GET all tasks (Protected)
+app.get('/api/tasks', authenticateToken, async (req, res) => {
     try {
-        const tasks = await db.all("SELECT * FROM tasks");
+        const tasks = await db.all("SELECT * FROM tasks WHERE user_id = ?", [req.user.id]);
         // Parse dependencies from JSON string
         const parsedTasks = tasks.map(task => ({
             ...task,
@@ -48,8 +94,8 @@ app.get('/api/tasks', async (req, res) => {
     }
 });
 
-// POST a new task
-app.post('/api/tasks', async (req, res) => {
+// POST a new task (Protected)
+app.post('/api/tasks', authenticateToken, async (req, res) => {
     const { title, duration, deadline, priority, dependencies } = req.body;
     const id = Date.now().toString();
     const completed = 0;
@@ -57,9 +103,9 @@ app.post('/api/tasks', async (req, res) => {
 
     try {
         await db.run(
-            `INSERT INTO tasks (id, title, duration, deadline, priority, dependencies, completed) 
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [id, title, duration, deadline, priority, dependenciesStr, completed]
+            `INSERT INTO tasks (id, user_id, title, duration, deadline, priority, dependencies, completed) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [id, req.user.id, title, duration, deadline, priority, dependenciesStr, completed]
         );
         const newTask = { id, title, duration, deadline, priority, dependencies: dependencies || [], completed: false };
         res.status(201).json(newTask);
@@ -68,38 +114,46 @@ app.post('/api/tasks', async (req, res) => {
     }
 });
 
-// PUT update a task
-app.put('/api/tasks/:id', async (req, res) => {
+// PUT update a task (Protected)
+app.put('/api/tasks/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const { title, duration, deadline, priority, dependencies, completed } = req.body;
 
-    // Fetch existing task to merge updates if needed, or just update what's provided
-    // For simplicity, we'll update all fields provided.
-    // Note: completed comes as boolean from frontend, we store as 0/1
-
+    // Fetch existing task ensuring it belongs to user
     try {
-        // First check if task exists
-        const task = await db.get("SELECT * FROM tasks WHERE id = ?", [id]);
+        const task = await db.get("SELECT * FROM tasks WHERE id = ? AND user_id = ?", [id, req.user.id]);
         if (!task) {
-            return res.status(404).json({ error: "Task not found" });
+            return res.status(404).json({ error: "Task not found or access denied" });
         }
 
         const newCompleted = completed !== undefined ? (completed ? 1 : 0) : task.completed;
         const newDependencies = dependencies !== undefined ? JSON.stringify(dependencies) : task.dependencies;
 
-        // Check if we are trying to complete the task
+        // Check completion restrictions
         if (newCompleted === 1) {
             const currentDependencies = dependencies !== undefined ? dependencies : JSON.parse(task.dependencies || '[]');
 
             if (currentDependencies.length > 0) {
                 const placeholders = currentDependencies.map(() => '?').join(',');
+                // Check incomplete deps strictly belonging to the user
                 const incompleteDeps = await db.all(
+                    `SELECT title FROM tasks WHERE id IN (${placeholders}) AND user_id = ? AND completed = 0`,
+                    [...currentDependencies, req.user.id] // Note: This query logic is slightly complex for array diff, 
+                    // but strictly checking if any ID in list is uncompleted for YES user.
+                    // Actually, IN clause handles IDs. We just ensure they belong to user AND are uncompleted.
+                );
+
+                // Correction: The query above is trying to pass params. 
+                // correct param order: specific IDs..., then userId.
+                // However, logic: find tasks that ARE in the dependency list AND are NOT completed.
+                // We trust the dependency list contains valid IDs. 
+                const incompleteDepsCheck = await db.all(
                     `SELECT title FROM tasks WHERE id IN (${placeholders}) AND completed = 0`,
                     currentDependencies
                 );
 
-                if (incompleteDeps.length > 0) {
-                    const depTitles = incompleteDeps.map(t => t.title).join(', ');
+                if (incompleteDepsCheck.length > 0) {
+                    const depTitles = incompleteDepsCheck.map(t => t.title).join(', ');
                     return res.status(400).json({
                         error: `Bu görevi tamamlamadan önce şu görevleri bitirmelisiniz: ${depTitles}`
                     });
@@ -115,8 +169,8 @@ app.put('/api/tasks/:id', async (req, res) => {
              priority = COALESCE(?, priority),
              dependencies = ?,
              completed = ?
-             WHERE id = ?`,
-            [title, duration, deadline, priority, newDependencies, newCompleted, id]
+             WHERE id = ? AND user_id = ?`,
+            [title, duration, deadline, priority, newDependencies, newCompleted, id, req.user.id]
         );
 
         const updatedTask = await db.get("SELECT * FROM tasks WHERE id = ?", [id]);
@@ -131,11 +185,12 @@ app.put('/api/tasks/:id', async (req, res) => {
     }
 });
 
-// DELETE a task
-app.delete('/api/tasks/:id', async (req, res) => {
+// DELETE a task (Protected)
+app.delete('/api/tasks/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
     try {
-        await db.run("DELETE FROM tasks WHERE id = ?", [id]);
+        const result = await db.run("DELETE FROM tasks WHERE id = ? AND user_id = ?", [id, req.user.id]);
+        // db.run context this.changes could be checked if we weren't using the wrapper mostly.
         res.json({ message: "Task deleted" });
     } catch (err) {
         res.status(500).json({ error: err.message });

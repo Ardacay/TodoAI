@@ -55,7 +55,9 @@ const AIInsights = ({ analysis, loading, onAnalyze }) => {
                             <ul className="list-disc list-inside space-y-1 text-red-200 text-sm">
                                 {analysis.risks.map((risk, idx) => (
                                     <li key={idx}>
-                                        <span className="font-medium text-red-300">Görev {risk.taskId}:</span> {risk.message}
+                                        <span className="font-medium text-red-300">
+                                            {risk.taskTitle ? risk.taskTitle : `Görev ${risk.taskId}`}:
+                                        </span> {risk.message}
                                     </li>
                                 ))}
                             </ul>
