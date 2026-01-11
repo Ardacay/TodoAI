@@ -51,6 +51,9 @@ function App() {
       setTasks(tasks.map(t => t.id === task.id ? response.data : t));
     } catch (error) {
       console.error('Error updating task:', error);
+      if (error.response && error.response.data && error.response.data.error) {
+        alert(error.response.data.error);
+      }
     }
   };
 

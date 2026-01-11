@@ -21,16 +21,37 @@ const TaskCard = ({ task, onDelete, onStatusCheck, onEdit, allTasks }) => {
         <div className={`group relative bg-slate-800 rounded-xl p-4 border transition-all duration-300 hover:-translate-y-1 hover:shadow-xl ${task.completed ? 'border-green-500/30 opacity-75' : 'border-slate-700'}`}>
             <div className="flex justify-between items-start mb-2">
                 <div className="flex items-start gap-3">
-                    <button
-                        onClick={() => onStatusCheck(task)}
-                        className={`mt-1 h-5 w-5 rounded-full border-2 flex items-center justify-center transition-colors ${task.completed ? 'bg-green-500 border-green-500' : 'border-gray-500 hover:border-purple-500'}`}
-                    >
-                        {task.completed && (
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-white" viewBox="0 0 20 20" fill="currentColor">
-                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                            </svg>
-                        )}
-                    </button>
+                    {(() => {
+                        const incompleteDeps = task.dependencies?.filter(depId => {
+                            const depTask = allTasks?.find(t => t.id === depId);
+                            return depTask && !depTask.completed;
+                        });
+                        const isBlocked = incompleteDeps && incompleteDeps.length > 0 && !task.completed;
+
+                        return (
+                            <button
+                                onClick={() => !isBlocked && onStatusCheck(task)}
+                                disabled={isBlocked}
+                                title={isBlocked ? "Önce bağımlı görevleri tamamlayın" : "Tamamlandı olarak işaretle"}
+                                className={`mt-1 h-5 w-5 rounded-full border-2 flex items-center justify-center transition-colors 
+                                    ${task.completed
+                                        ? 'bg-green-500 border-green-500'
+                                        : isBlocked
+                                            ? 'border-gray-600 bg-gray-700 cursor-not-allowed'
+                                            : 'border-gray-500 hover:border-purple-500'}`}
+                            >
+                                {task.completed ? (
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-white" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                    </svg>
+                                ) : isBlocked ? (
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                                    </svg>
+                                ) : null}
+                            </button>
+                        );
+                    })()}
                     <div>
                         <h3 className={`font-semibold text-lg ${task.completed ? 'line-through text-gray-500' : 'text-white'}`}>
                             {task.title}

@@ -87,6 +87,26 @@ app.put('/api/tasks/:id', async (req, res) => {
         const newCompleted = completed !== undefined ? (completed ? 1 : 0) : task.completed;
         const newDependencies = dependencies !== undefined ? JSON.stringify(dependencies) : task.dependencies;
 
+        // Check if we are trying to complete the task
+        if (newCompleted === 1) {
+            const currentDependencies = dependencies !== undefined ? dependencies : JSON.parse(task.dependencies || '[]');
+
+            if (currentDependencies.length > 0) {
+                const placeholders = currentDependencies.map(() => '?').join(',');
+                const incompleteDeps = await db.all(
+                    `SELECT title FROM tasks WHERE id IN (${placeholders}) AND completed = 0`,
+                    currentDependencies
+                );
+
+                if (incompleteDeps.length > 0) {
+                    const depTitles = incompleteDeps.map(t => t.title).join(', ');
+                    return res.status(400).json({
+                        error: `Bu görevi tamamlamadan önce şu görevleri bitirmelisiniz: ${depTitles}`
+                    });
+                }
+            }
+        }
+
         await db.run(
             `UPDATE tasks SET 
              title = COALESCE(?, title),
